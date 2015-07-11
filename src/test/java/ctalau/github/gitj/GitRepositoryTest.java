@@ -125,13 +125,13 @@ public class GitRepositoryTest {
     executor.runGitCommand("branch", branchName);
 
     // Create the files on the master branch.
-    String folderPath = "folder\u20141/";
+    String folderPath = "folder\u2014\"\\1/";
     String content = "<root>\u2014<\root>";
     List<String> files = ImmutableList.of(
-        folderPath + "file\u20141.xml", 
-        folderPath + "file\u20142.xml");
+        "file\u20141.xml", 
+        "file\u20142.xml");
     for (String file: files) {
-      addFileOnCurrentBranch(file, content);
+      addFileOnCurrentBranch(folderPath + file, content);
     }
     
     // Switch to another branch.

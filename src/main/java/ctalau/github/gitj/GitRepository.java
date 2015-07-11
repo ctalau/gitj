@@ -80,10 +80,20 @@ public class GitRepository {
    * @throws InterruptedException
    */
   public List<String> listFiles(String branch, String dirPath) throws IOException, InterruptedException {
-    String fileNames = executor.runGitCommand("ls-tree", branch, dirPath + "/", "--name-only");
-    List<String> filePaths = Arrays.asList(splitInLines(fileNames));
-    // TODO: escaping problems
-    // TODO: retain only the names.
-    return filePaths;
+    String fileList = executor.runGitCommand("ls-tree", branch, dirPath + "/", "--name-only");
+    List<String> escapedFilePaths = Arrays.asList(splitInLines(fileList));
+    List<String> fileNames = Lists.newArrayListWithCapacity(escapedFilePaths.size());
+    for (String escapedFilePath: escapedFilePaths) {
+      String filePath = escapedFilePath;
+      if (filePath.startsWith("\"")) {
+        filePath = Unescaper.unescapeCStringLiteral(escapedFilePath);
+      }
+      int nameStartIndex = filePath.lastIndexOf(File.separatorChar) + 1;
+      fileNames.add(filePath.substring(nameStartIndex));
+    }
+    return fileNames;
   }
+  
+  
+  
 }
