@@ -250,20 +250,27 @@ public class GitRepository {
    * given commit is not the latest commit on that branch, this method fails.
    * 
    * Note: This method is the only one that is not atomic. It should not be called
-   * from multiple threads or even processes simultaneously.
+   * from multiple processes simultaneously. Calling it from multiple threads is OK.
    *
    * @param branch The name of the branch.
    * @param commitSha The commit at which to point the branch to.
+   *
+   * @return <code>true</code> if the branch was moved.
    * 
    * @throws IOException
    * @throws InterruptedException
    */
-  public void moveBranch(String branch, String commitSha) throws IOException, InterruptedException {
+  public boolean moveBranch(String branch, String commitSha) throws IOException, InterruptedException {
     List<String> commitParents = this.getCommitParents(commitSha);
-    String branchCommitSha = this.getLatestCommitSha(branch);
-    if (branchCommitSha == null || commitParents.contains(branchCommitSha)) {
-      executor.runGitCommand("update-ref", "refs/heads/" + branch, commitSha);
+    boolean moved = false;
+    synchronized (this) {
+      String branchCommitSha = this.getLatestCommitSha(branch);
+      if (branchCommitSha == null || commitParents.contains(branchCommitSha)) {
+        executor.runGitCommand("update-ref", "refs/heads/" + branch, commitSha);
+        moved = true;
+      }
     }
+    return moved;
   }
   
   /**
