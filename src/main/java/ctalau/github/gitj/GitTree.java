@@ -54,8 +54,13 @@ public class GitTree {
    * @return The SHA of the entry.
    */
   public String getEntrySha(String name) {
-    String details = entries.get(name).split("\t")[0];
-    return details.split(" ")[2];
+    String sha = null;
+    String entry = entries.get(name);
+    if (entry != null) {
+      String details = entry.split("\t")[0];
+      sha = details.split(" ")[2];
+    }
+    return sha;
   }
   
   /**
@@ -66,11 +71,14 @@ public class GitTree {
    * @param type The type of the new entry.
    */
   public void updateEntry(String name, String sha, EntryType type) {
+    String escapedName;
     if (entries.containsKey(name)) {
-      String escapedName = entries.get(name).split("\t")[1];
-      String entryDescriptor = getEntryDescriptor(sha, type, escapedName);
-      entries.put(name, entryDescriptor);
+      escapedName = entries.get(name).split("\t")[1];
+    } else {
+      escapedName = name;
     }
+    String entryDescriptor = getEntryDescriptor(sha, type, escapedName);
+    entries.put(name, entryDescriptor);
   }
 
   /**

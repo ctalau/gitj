@@ -7,6 +7,7 @@ import java.util.List;
 
 import com.google.common.collect.Lists;
 
+import ctalau.github.gitj.GitCommandExecutor.ProcessExitException;
 import ctalau.github.gitj.GitTree.EntryType;
 
 /**
@@ -55,7 +56,12 @@ public class GitRepository {
    */
   public String getLatestCommitSha(String branch) throws IOException, InterruptedException {
     String sha = null;
-    String branchOutput = executor.runGitCommand("show-ref", "refs/heads/" + branch);
+    String branchOutput = null;
+    try {
+      branchOutput = executor.runGitCommand("show-ref", "refs/heads/" + branch);
+    } catch (ProcessExitException e) {
+      // The branch does not exist.
+    }
     if (branchOutput != null && branchOutput.trim().length() != 0) {
       sha = branchOutput.split(" ")[0];
     }
@@ -65,8 +71,6 @@ public class GitRepository {
   
   /**
    * Writes the content of the specified file and commits it.
-   * 
-   * TODO: create a file and its ancestors if they do not exist.
    * 
    * @param sourceCommitSha The commit from which we should start.
    * @param filePath The path of the file to update.
@@ -87,13 +91,12 @@ public class GitRepository {
     List<GitTree> trees = computePathToRoot(rootTreeId, filePathParts);
     
     String blobSha = this.hashBlob(fileContent, filePath);
-    
+
     GitTree fileParent = trees.get(trees.size() - 1);
     fileParent.updateEntry(filePathParts[filePathParts.length - 1], blobSha, EntryType.BLOB);
     String ancestorSha = mkTree(fileParent);
     
     ancestorSha = updateAncestors(filePathParts, trees, ancestorSha);
-
     return commitTree(ancestorSha, sourceCommitSha, commitMessage);
   }
   
@@ -176,15 +179,20 @@ public class GitRepository {
    * @throws IOException
    * @throws InterruptedException
    */
-  private List<GitTree> computePathToRoot(String rootTreeId, String[] filePathParts) throws IOException, InterruptedException {
+  private List<GitTree> computePathToRoot(String rootTreeId, 
+      String[] filePathParts) throws IOException, InterruptedException {
     String crtTreeId = rootTreeId;
     List<GitTree> trees = Lists.newArrayListWithExpectedSize(filePathParts.length);
     for (int i = 0; i < filePathParts.length; i++) {
-      String treeContent = executor.runGitCommand("ls-tree", crtTreeId);
-      GitTree crtTree = new GitTree(splitInLines(treeContent));
+      GitTree crtTree = null;
+      if (crtTreeId != null) {
+        String treeContent = executor.runGitCommand("ls-tree", crtTreeId);
+        crtTree = new GitTree(splitInLines(treeContent));
+        crtTreeId = crtTree.getEntrySha(filePathParts[i]);
+      } else {
+        crtTree = new GitTree(new String[0]);
+      }
       trees.add(crtTree);
-      
-      crtTreeId = crtTree.getEntrySha(filePathParts[i]);
     }
     return trees;
   }
@@ -250,9 +258,35 @@ public class GitRepository {
    * @throws IOException
    * @throws InterruptedException
    */
-  public void createBranch(String branch, String commitSha) throws IOException, InterruptedException {
-    //TODO: Implement this in an atomic way.
+  public void moveBranch(String branch, String commitSha) throws IOException, InterruptedException {
+    List<String> commitParents = this.getCommitParents(commitSha);
+    String branchCommitSha = this.getLatestCommitSha(branch);
+    if (branchCommitSha == null || commitParents.contains(branchCommitSha)) {
+      executor.runGitCommand("update-ref", "refs/heads/" + branch, commitSha);
+    }
   }
+  
+  /**
+   * Return the parents of a commit.
+   * 
+   * @param commitSha The commit SHA.
+   * 
+   * @return The parent commits.
+   * 
+   * @throws IOException
+   * @throws InterruptedException
+   */
+  private List<String> getCommitParents(String commitSha) throws IOException, InterruptedException {
+    String commitDetails = executor.runGitCommand("cat-file", "commit", commitSha);
+    List<String> parents = Lists.newArrayList();
+    for (String line : splitInLines(commitDetails)) {
+      if (line.startsWith("parent")) {
+        parents.add(line.split(" ")[1]);
+      }
+    }
+    return parents;
+  }
+
 
   /**
    * Split the string in lines.

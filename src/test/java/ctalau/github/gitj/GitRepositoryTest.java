@@ -2,6 +2,7 @@ package ctalau.github.gitj;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import java.io.File;
 import java.io.IOException;
@@ -206,17 +207,102 @@ public class GitRepositoryTest {
     String fileToUpdate = mkUnicode("f-1/f-2/file-1.xml");
     addFileOnCurrentBranch(fileToUpdate, content);
     
-    // Launch the delete operation.
+    // Launch the write operation.
     GitRepository repository = new GitRepository(repoDir);
     String branchSha = repository.getLatestCommitSha("master");
     String newContent = mkUnicode("<root></b>-</b><\root>");
     String newSha = repository.writeFile(branchSha,
         fileToUpdate, newContent, "Updated file");
     
-    // Check the files in the parent of the deleted file.
+    // Check the content of the updated file.
     String gotContent = repository.readFile(newSha, fileToUpdate);
     assertEquals(newContent, gotContent);
   }
+
+  /**
+   * Test file update operation.
+   * 
+   * @throws Exception
+   */
+  @Test
+  public void testFileCreate() throws Exception {
+    String branchName = mkUnicode("newbranch-");
+    executor.runGitCommand("branch", branchName);
+
+    // Create the files on the master branch.
+    String fileToCreate = mkUnicode("f-1/f-2/file-1.xml");
+    String content = mkUnicode("<root>-<\root>");
+    
+    GitRepository repository = new GitRepository(repoDir);
+    String branchSha = repository.getLatestCommitSha("master");
+    String newSha = repository.writeFile(branchSha,
+        fileToCreate, content, "Created File");
+    
+    // Check the files in the parent of the deleted file.
+    String gotContent = repository.readFile(newSha, fileToCreate);
+    assertEquals(content, gotContent);
+  }
+  
+  /**
+   * Test creating a new branch to point to an existing commit.
+   * 
+   * @throws Exception
+   */
+  @Test
+  public void testCreateBranch() throws Exception {
+    GitRepository repository = new GitRepository(repoDir);
+    String masterCommitSha = repository.getLatestCommitSha("master");
+    
+    String commitSha = repository.writeFile(masterCommitSha,
+        "README.md", "content", "Created File");
+    
+    // create a new branch to point to that commit.
+    String newBranch = "some-new-branch";
+    repository.moveBranch(newBranch, commitSha);
+    assertTrue(repository.listBranches().contains(newBranch));
+  }
+  
+
+  /**
+   * Test updating a branch to point to an existing commit.
+   * 
+   * @throws Exception
+   */
+  @Test
+  public void testUpdateBranch() throws Exception {
+    GitRepository repository = new GitRepository(repoDir);
+    String masterCommitSha = repository.getLatestCommitSha("master");
+    
+    String commitSha = repository.writeFile(masterCommitSha,
+        "README.md", "content", "Created File");
+    
+    // create a new branch to point to that commit.
+    repository.moveBranch("master", commitSha);
+    assertEquals(commitSha, repository.getLatestCommitSha("master"));
+  }
+
+  /**
+   * Test updating a branch to point to an existing commit.
+   * In this test, the branch has diverged from the parent of our commit.
+   * This should fail.
+   * 
+   * @throws Exception
+   */
+  @Test
+  public void testUpdateBranchConflict() throws Exception {
+    GitRepository repository = new GitRepository(repoDir);
+    String masterCommitSha = repository.getLatestCommitSha("master");
+    addFileOnCurrentBranch(".gitignore", "nothing");
+    
+    String commitSha = repository.writeFile(masterCommitSha,
+        "README.md", "content", "Created File");
+
+    
+    // create a new branch to point to that commit.
+    repository.moveBranch("master", commitSha);
+    assertFalse(commitSha.equals(repository.getLatestCommitSha("master")));
+  }
+
 
 }
 

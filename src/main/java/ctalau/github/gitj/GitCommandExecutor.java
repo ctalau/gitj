@@ -15,6 +15,17 @@ import com.google.common.io.ByteStreams;
 import com.google.common.io.CharStreams;
 
 public class GitCommandExecutor {
+  
+  /**
+   * Exception thrown when the process exits with a non-zero exit code.
+   */
+  @SuppressWarnings("serial")
+  static class ProcessExitException extends IOException {
+    public ProcessExitException(String msg) {
+      super(msg);
+    }
+  }
+  
   /**
    * The folder where the local repository clone is located.
    */
@@ -59,7 +70,7 @@ public class GitCommandExecutor {
 
     int exitCode = process.waitFor();
     if (exitCode != 0) {
-      throw new IOException(error);
+      throw new ProcessExitException(error);
     }
 
     return output;
