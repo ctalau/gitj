@@ -47,6 +47,16 @@ public class GitRepositoryTest {
     
     addFileOnCurrentBranch("README.md", "text");
   }
+  
+  /**
+   * Converts the - char to a long dash unicode char.
+   * 
+   * @param src The string containing -.
+   * @return The string with the long dash replaced.
+   */
+  private static String mkUnicode(String src) {
+    return src.replace("-", "\u2014");
+  }
 
   /**
    * Adds a file on the current branch.
@@ -83,7 +93,7 @@ public class GitRepositoryTest {
    */
   @Test
   public void testBranchListing() throws Exception {
-    String branchName = "newbranch\u2014";
+    String branchName = mkUnicode("newbranch-");
     executor.runGitCommand("branch", branchName);
     List<String> branches = new GitRepository(repoDir).listBranches();
     assertEquals(ImmutableList.of("master", branchName), branches);
@@ -96,12 +106,12 @@ public class GitRepositoryTest {
    */
   @Test
   public void testFileReading() throws Exception {
-    String branchName = "newbranch\u2014";
+    String branchName = mkUnicode("newbranch-");
     executor.runGitCommand("branch", branchName);
 
     // Create the file on the master branch.
-    String filePath = "folder\u20141/file.xml";
-    String content = "<root>\u2014<\root>";
+    String filePath = mkUnicode("folder-1/file.xml");
+    String content = mkUnicode("<root>-<\root>");
     addFileOnCurrentBranch(filePath, content);
     
     // Switch to another branch.
@@ -109,8 +119,10 @@ public class GitRepositoryTest {
     // The file does not exist on this branch
     assertFalse(new File(repoDir, filePath).exists());
     
-    String readContent = new GitRepository(repoDir).readFile(
-        "master", filePath);
+    
+    GitRepository repository = new GitRepository(repoDir);
+    String masterSha = repository.getLatestCommitSha("master");
+    String readContent = repository.readFile(masterSha, filePath);
     assertEquals(content, readContent);
   }
 
@@ -121,15 +133,15 @@ public class GitRepositoryTest {
    */
   @Test
   public void testDirectoryListing() throws Exception {
-    String branchName = "newbranch\u2014";
+    String branchName = mkUnicode("newbranch-");
     executor.runGitCommand("branch", branchName);
 
     // Create the files on the master branch.
-    String folderPath = "folder\u2014\"\\1/";
-    String content = "<root>\u2014<\root>";
+    String folderPath = mkUnicode("folder-\"\\1/");
+    String content = mkUnicode("<root>-<\root>");
     List<String> files = ImmutableList.of(
-        "file\u20141.xml", 
-        "file\u20142.xml");
+        mkUnicode("file-1.xml"), 
+        mkUnicode("file-2.xml"));
     for (String file: files) {
       addFileOnCurrentBranch(folderPath + file, content);
     }
@@ -139,8 +151,72 @@ public class GitRepositoryTest {
     // The folder does not exist on this branch
     assertFalse(new File(repoDir, folderPath).exists());
     
-    List<String> gotFiles = new GitRepository(repoDir).listFiles("master", folderPath);
+    GitRepository repository = new GitRepository(repoDir);
+    String masterSha = repository.getLatestCommitSha("master");
+    List<String> gotFiles = repository.listFiles(masterSha, folderPath);
     assertEquals(files, gotFiles);
   }
+  
+  /**
+   * Test file deletion operation.
+   * 
+   * @throws Exception
+   */
+  @Test
+  public void testFileDeletion() throws Exception {
+    String branchName = mkUnicode("newbranch-");
+    executor.runGitCommand("branch", branchName);
+
+    // Create the files on the master branch.
+    String content = mkUnicode("<root>-<\root>");
+    String fileToDelete = mkUnicode("f-1/f-2/file-1.xml");
+    List<String> files = ImmutableList.of(
+        fileToDelete,
+        mkUnicode("f-1/f-2/other-1.xml"),
+        mkUnicode("f-1/f-2/other-dir/file.xml"));
+    for (String file: files) {
+      addFileOnCurrentBranch(file, content);
+    }
+    
+    // Launch the delete operation.
+    GitRepository repository = new GitRepository(repoDir);
+    String branchSha = repository.getLatestCommitSha("master");
+    String newSha = repository.deleteFile(branchSha,
+        fileToDelete, "Deleted file");
+    
+    // Check the files in the parent of the deleted file.
+    List<String> gotFiles = repository.listFiles(newSha, mkUnicode("f-1/f-2"));
+    assertEquals(ImmutableList.of(
+        mkUnicode("other-1.xml"),
+        mkUnicode("other-dir")), gotFiles);
+  }
+  
+  /**
+   * Test file update operation.
+   * 
+   * @throws Exception
+   */
+  @Test
+  public void testFileUpdate() throws Exception {
+    String branchName = mkUnicode("newbranch-");
+    executor.runGitCommand("branch", branchName);
+
+    // Create the files on the master branch.
+    String content = mkUnicode("<root>-<\root>");
+    String fileToUpdate = mkUnicode("f-1/f-2/file-1.xml");
+    addFileOnCurrentBranch(fileToUpdate, content);
+    
+    // Launch the delete operation.
+    GitRepository repository = new GitRepository(repoDir);
+    String branchSha = repository.getLatestCommitSha("master");
+    String newContent = mkUnicode("<root></b>-</b><\root>");
+    String newSha = repository.writeFile(branchSha,
+        fileToUpdate, newContent, "Updated file");
+    
+    // Check the files in the parent of the deleted file.
+    String gotContent = repository.readFile(newSha, fileToUpdate);
+    assertEquals(newContent, gotContent);
+  }
+
 }
 

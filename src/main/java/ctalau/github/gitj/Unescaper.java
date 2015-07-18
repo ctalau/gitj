@@ -28,7 +28,7 @@ public class Unescaper {
     List<Byte> sb = Lists.newArrayListWithCapacity(literal.length());
     
     if (literal.charAt(0) != '"' || literal.charAt(literal.length() - 1) != '"') {
-      throw new IllegalArgumentException("The input string is not a C string literal.");
+      return literal;
     }
     
     for (int i = 1; i < literal.length() - 1; i++) {

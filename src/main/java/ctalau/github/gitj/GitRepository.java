@@ -7,6 +7,8 @@ import java.util.List;
 
 import com.google.common.collect.Lists;
 
+import ctalau.github.gitj.GitTree.EntryType;
+
 /**
  * Hello world!
  *
@@ -41,6 +43,217 @@ public class GitRepository {
     return ret;
   }
 
+  
+  /**
+   * Return the SHA of the latest commit on the given branch.
+   * 
+   * @param branch The name of the local branch.
+   * @return The SHA of the latest commit.
+   * 
+   * @throws IOException
+   * @throws InterruptedException
+   */
+  public String getLatestCommitSha(String branch) throws IOException, InterruptedException {
+    String sha = null;
+    String branchOutput = executor.runGitCommand("show-ref", "refs/heads/" + branch);
+    if (branchOutput != null && branchOutput.trim().length() != 0) {
+      sha = branchOutput.split(" ")[0];
+    }
+    return sha;
+  }
+  
+  
+  /**
+   * Writes the content of the specified file and commits it.
+   * 
+   * TODO: create a file and its ancestors if they do not exist.
+   * 
+   * @param sourceCommitSha The commit from which we should start.
+   * @param filePath The path of the file to update.
+   * @param fileContent The content of the file to commit.
+   * 
+   * @param commitMessage The commit message.
+   * 
+   * @return The SHA of the new commit.
+   * 
+   * @throws IOException
+   * @throws InterruptedException
+   */
+  public String writeFile(String sourceCommitSha, String filePath, String fileContent, 
+      String commitMessage) throws IOException, InterruptedException {
+    String rootTreeId = getRootTreeSha(sourceCommitSha);
+
+    String[] filePathParts = filePath.split("/");
+    List<GitTree> trees = computePathToRoot(rootTreeId, filePathParts);
+    
+    String blobSha = this.hashBlob(fileContent, filePath);
+    
+    GitTree fileParent = trees.get(trees.size() - 1);
+    fileParent.updateEntry(filePathParts[filePathParts.length - 1], blobSha, EntryType.BLOB);
+    String ancestorSha = mkTree(fileParent);
+    
+    ancestorSha = updateAncestors(filePathParts, trees, ancestorSha);
+
+    return commitTree(ancestorSha, sourceCommitSha, commitMessage);
+  }
+  
+
+  /**
+   * Update the ancestors of the modified file.
+   * 
+   * @param filePathParts The file path entries.
+   * @param trees The trees on the path to root.
+   * @param ancestorSha The SHA of the parent of the file.
+   * 
+   * @return the new root SHA.
+   * 
+   * @throws IOException
+   * @throws InterruptedException
+   */
+  private String updateAncestors(String[] filePathParts, List<GitTree> trees, String ancestorSha)
+      throws IOException, InterruptedException {
+    for (int i = filePathParts.length - 2; i >= 0; i--) {
+      trees.get(i).updateEntry(
+          filePathParts[i], ancestorSha, EntryType.TREE);
+      ancestorSha = mkTree(trees.get(i));
+    }
+    return ancestorSha;
+  }
+  
+  /**
+   * Hashes a file into the Git database.
+   * 
+   * @param contents The contents of the file.
+   * @param filePath The path of the file.
+   * 
+   * @return The SHA of the generated blob.
+   * @throws IOException
+   * @throws InterruptedException
+   */
+  private String hashBlob(String contents, String filePath) throws IOException, InterruptedException {
+    return executor.pipeIntoGitCommand(
+        contents, "hash-object", "-w", "--stdin", "--path", filePath).trim();
+  }
+  
+
+  /**
+   * Deletes the content of the specified file and commits.
+   * 
+   * @param sourceCommitSha The commit from which we should start.
+   * @param filePath The path of the file to update.
+   * 
+   * @param commitMessage The commit message.
+   * 
+   * @return The SHA of the new commit.
+   * 
+   * @throws IOException
+   * @throws InterruptedException
+   */
+  public String deleteFile(String sourceCommitSha, String filePath, 
+      String commitMessage) throws IOException, InterruptedException {
+    String rootTreeId = getRootTreeSha(sourceCommitSha);
+
+    String[] filePathParts = filePath.split("/");
+    List<GitTree> trees = computePathToRoot(rootTreeId, filePathParts);
+    
+    GitTree fileParent = trees.get(trees.size() - 1);
+    fileParent.removeEntry(filePathParts[filePathParts.length - 1]);
+    String ancestorSha = mkTree(fileParent);
+    
+    ancestorSha = updateAncestors(filePathParts, trees, ancestorSha);
+    
+    return commitTree(ancestorSha, sourceCommitSha, commitMessage);
+  }
+
+  /**
+   * Computes a list of trees that for the path from the root tree to the file.
+   * 
+   * @param rootTreeId The if of the root tree.
+   * @param filePathParts The array of file path entries.
+   * 
+   * @return The list of Git tree objects.
+   * 
+   * @throws IOException
+   * @throws InterruptedException
+   */
+  private List<GitTree> computePathToRoot(String rootTreeId, String[] filePathParts) throws IOException, InterruptedException {
+    String crtTreeId = rootTreeId;
+    List<GitTree> trees = Lists.newArrayListWithExpectedSize(filePathParts.length);
+    for (int i = 0; i < filePathParts.length; i++) {
+      String treeContent = executor.runGitCommand("ls-tree", crtTreeId);
+      GitTree crtTree = new GitTree(splitInLines(treeContent));
+      trees.add(crtTree);
+      
+      crtTreeId = crtTree.getEntrySha(filePathParts[i]);
+    }
+    return trees;
+  }
+
+  /**
+   * Creates a tree object and returns its SHA.
+   * @param tree The content of the tree object.
+   * @return The SHA of the tree object.
+   * 
+   * @throws IOException
+   * @throws InterruptedException
+   */
+  private String mkTree(GitTree tree) throws IOException, InterruptedException {
+    return executor.pipeIntoGitCommand(tree.toString(), "mktree").trim();
+  }
+  
+  /**
+   * Commits the a tree.
+   * 
+   * @param treeSha The SHA of the tree.
+   * @param parentSha The SHA of the parent commit.
+   * @param commitMessage The commit message.
+   * 
+   * @return The commit SHA.
+   * 
+   * @throws IOException
+   * @throws InterruptedException
+   */
+  private String commitTree(String treeSha, String parentSha, String commitMessage) throws IOException, InterruptedException {
+    return executor.runGitCommand("commit-tree", treeSha, "-p", parentSha, "-m", commitMessage).trim();
+  }
+  
+
+  /**
+   * Returns the SHA root tree of the commit.
+   *  
+   * @param sourceCommitSha The SHA of the commit.
+   * 
+   * @return The SHA of the root tree.
+   *
+   * @throws IOException
+   * @throws InterruptedException
+   */
+  private String getRootTreeSha(String sourceCommitSha) throws IOException, InterruptedException {
+    String commitDetails = executor.runGitCommand("cat-file", "commit", sourceCommitSha);
+    String commitTreeDetails = splitInLines(commitDetails)[0];
+    String rootTreeId = commitTreeDetails.split(" ")[1];
+    return rootTreeId;
+  }
+  
+  /**
+   * Moves the specified branch to point to the given commit. 
+   * 
+   * If the branch already exists, and if one of the parents of the 
+   * given commit is not the latest commit on that branch, this method fails.
+   * 
+   * Note: This method is the only one that is not atomic. It should not be called
+   * from multiple threads or even processes simultaneously.
+   *
+   * @param branch The name of the branch.
+   * @param commitSha The commit at which to point the branch to.
+   * 
+   * @throws IOException
+   * @throws InterruptedException
+   */
+  public void createBranch(String branch, String commitSha) throws IOException, InterruptedException {
+    //TODO: Implement this in an atomic way.
+  }
+
   /**
    * Split the string in lines.
    * 
@@ -49,14 +262,18 @@ public class GitRepository {
    * @return The lines array.
    */
   private String[] splitInLines(String string) {
-    return string.split("\\r?\\n");
+    String[] split = string.split("\\r?\\n");
+    if (split.length == 1 && split[0].length() == 0) {
+      split = new String[0];
+    }
+    return split;
   }
 
   
   /**
-   * Reads the content of a file on a branch without switching to it.
+   * Reads the content of a file at a specific commit.
    * 
-   * @param branch The branch in which we are interested.
+   * @param sha The SHA of the commit in which we are interested.
    * @param path The path of the file that we want to read.
    * 
    * @return The content of the file.
@@ -64,14 +281,14 @@ public class GitRepository {
    * @throws IOException
    * @throws InterruptedException
    */
-  public String readFile(String branch, String path) throws IOException, InterruptedException {
-    return executor.runGitCommand("show", branch + ":" + path);
+  public String readFile(String sha, String path) throws IOException, InterruptedException {
+    return executor.runGitCommand("show", sha + ":" + path);
   }
   
   /**
    * Lists the directory contents on a given branch.
    * 
-   * @param branch The branch on which we want to list the folder entrie.
+   * @param sha The SHA of the commit at on which we want to list the folder entries.
    * @param dirPath The path to the directory.
    * 
    * @return The list of directory entries.
@@ -79,21 +296,16 @@ public class GitRepository {
    * @throws IOException
    * @throws InterruptedException
    */
-  public List<String> listFiles(String branch, String dirPath) throws IOException, InterruptedException {
-    String fileList = executor.runGitCommand("ls-tree", branch, dirPath + "/", "--name-only");
+  public List<String> listFiles(String sha, String dirPath) throws IOException, InterruptedException {
+    String fileList = executor.runGitCommand("ls-tree", sha, dirPath + "/", "--name-only");
     List<String> escapedFilePaths = Arrays.asList(splitInLines(fileList));
     List<String> fileNames = Lists.newArrayListWithCapacity(escapedFilePaths.size());
     for (String escapedFilePath: escapedFilePaths) {
       String filePath = escapedFilePath;
-      if (filePath.startsWith("\"")) {
-        filePath = Unescaper.unescapeCStringLiteral(escapedFilePath);
-      }
+      filePath = Unescaper.unescapeCStringLiteral(escapedFilePath);
       int nameStartIndex = filePath.lastIndexOf(File.separatorChar) + 1;
       fileNames.add(filePath.substring(nameStartIndex));
     }
     return fileNames;
   }
-  
-  
-  
 }

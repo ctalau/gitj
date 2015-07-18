@@ -1,14 +1,17 @@
 package ctalau.github.gitj;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.util.Arrays;
 import java.util.List;
 
 import com.google.common.base.Charsets;
 import com.google.common.collect.Lists;
+import com.google.common.io.ByteStreams;
 import com.google.common.io.CharStreams;
 
 public class GitCommandExecutor {
@@ -30,6 +33,63 @@ public class GitCommandExecutor {
   /**
    * Runs a git command and returns the output.
    * 
+   * @param input The input stream of the command.
+   * @param command
+   *          The git command name: "commit", "branch", etc.
+   * @param args
+   *          The arguments of that command.
+   * 
+   * @return The output of the git tool.
+   * 
+   * @throws IOException
+   *           If could not read the process output.
+   * @throws InterruptedException
+   */
+  public String pipeIntoGitCommand(String input, String command, String... args) throws IOException, InterruptedException {
+    List<String> arguments = Lists.newArrayListWithCapacity(2 + args.length);
+    arguments.add("git");
+    arguments.add(command);
+    arguments.addAll(Arrays.asList(args));
+    Process process = new ProcessBuilder().command(arguments).directory(this.repoLocation).start();
+    if (input != null) {
+      injectInputStream(input, process);
+    }
+    String output = readAsciiInputStreamStream(process.getInputStream());
+    String error = readAsciiInputStreamStream(process.getErrorStream());
+
+    int exitCode = process.waitFor();
+    if (exitCode != 0) {
+      throw new IOException(error);
+    }
+
+    return output;
+    
+  }
+
+  /**
+   * Inject the given string as the input stream of the process.
+   * 
+   * @param input The string to pipe in the content.
+   * @param process The process.
+   * 
+   * @throws IOException
+   */
+  private void injectInputStream(String input, Process process) throws IOException {
+    OutputStream outputStream = process.getOutputStream();
+    ByteArrayInputStream inputStream = new ByteArrayInputStream(input
+        .getBytes(Charsets.UTF_8));
+    try {
+      ByteStreams.copy(inputStream, outputStream);
+    } finally {
+      inputStream.close();
+    }
+    outputStream.flush();
+    outputStream.close();
+  }
+
+  /**
+   * Runs a git command and returns the output.
+   * 
    * @param command
    *          The git command name: "commit", "branch", etc.
    * @param args
@@ -42,20 +102,7 @@ public class GitCommandExecutor {
    * @throws InterruptedException
    */
   public String runGitCommand(String command, String... args) throws IOException, InterruptedException {
-    List<String> arguments = Lists.newArrayListWithCapacity(2 + args.length);
-    arguments.add("git");
-    arguments.add(command);
-    arguments.addAll(Arrays.asList(args));
-    Process process = new ProcessBuilder().command(arguments).directory(this.repoLocation).start();
-    String output = readUtf8InputStreamStream(process.getInputStream());
-    String error = readUtf8InputStreamStream(process.getErrorStream());
-
-    int exitCode = process.waitFor();
-    if (exitCode != 0) {
-      throw new IOException(error);
-    }
-
-    return output;
+    return pipeIntoGitCommand(null, command, args);
   }
 
   /**
@@ -68,7 +115,7 @@ public class GitCommandExecutor {
    * 
    * @throws IOException
    */
-  private String readUtf8InputStreamStream(InputStream stream) throws IOException {
+  private String readAsciiInputStreamStream(InputStream stream) throws IOException {
     InputStreamReader stdoutReader = new InputStreamReader(stream, Charsets.UTF_8);
     String output;
     try {

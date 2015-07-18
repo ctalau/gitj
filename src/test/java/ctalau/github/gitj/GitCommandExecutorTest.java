@@ -21,13 +21,24 @@ public class GitCommandExecutorTest {
 
   
   private File repoDir;
+  
+  /**
+   * Command executor under test.
+   */
+  private GitCommandExecutor executor;
 
   /**
    * Create the scratch dir.
+   * 
+   * @throws InterruptedException 
+   * @throws IOException 
    */
   @Before
-  public void setUp() {
+  public void setUp() throws IOException, InterruptedException {
     repoDir = Files.createTempDir();
+    executor = new GitCommandExecutor(repoDir);
+    String output = executor.runGitCommand("init");
+    assertTrue(output.startsWith("Initialized empty Git repository"));
   }
   
   /**
@@ -46,9 +57,7 @@ public class GitCommandExecutorTest {
    */
   @Test
   public void testCommandExecutionWithoutArgs() throws Exception {
-    GitCommandExecutor executor = new GitCommandExecutor(repoDir);
-    String output = executor.runGitCommand("init");
-    assertTrue(output.startsWith("Initialized empty Git repository"));
+    
   }
 
   /**
@@ -58,10 +67,6 @@ public class GitCommandExecutorTest {
    */
   @Test
   public void testCommandExecutionWithArguments() throws Exception {
-    GitCommandExecutor executor = new GitCommandExecutor(repoDir);
-    String output = executor.runGitCommand("init");
-    assertTrue(output.startsWith("Initialized empty Git repository"));
-
     File content = new File(repoDir, "README.md");
     Files.write("Some *bold* stuff", content, Charsets.UTF_8);
     executor.runGitCommand("add", content.getPath());
@@ -74,4 +79,21 @@ public class GitCommandExecutorTest {
 
     assertEquals(commitMessage, actualCommitMessage);
   }
+  
+  /**
+   * Test the command execution for commands with stdin params.
+   * 
+   * @throws Exception
+   */
+  @Test
+  public void testCommandWithInputStream() throws Exception {
+    File content = new File(repoDir, "README.md");
+    Files.write("Some *bold* stuff", content, Charsets.UTF_8);
+    String sha = executor.runGitCommand("hash-object", "-w", content.getPath());
+
+    String treeContent = "100644 blob " + sha.trim() + "\tfile1\n";
+    String treeSha = executor.pipeIntoGitCommand(treeContent, "mktree");
+    assertEquals("bb5d54921f75c3a5faeb18e2426c016d02b2d945", treeSha.trim());
+  }
+
 }
